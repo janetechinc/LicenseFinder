@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'pathname'
 
 module LicenseFinder
   class Bundler < PackageManager
@@ -33,21 +34,27 @@ module LicenseFinder
     end
 
     def possible_package_paths
-      [Dir.chdir(project_path) { gemfile_path }]
+      [gemfile_path]
     end
 
     private
 
     attr_reader :ignored_groups
 
+    def lf_bundler_exec
+      lfs = Gem::Specification.find_by_name('license_finder')
+      lfs.bin_file('license_finder_bundler')
+    end
+
     def bundle_specs
+      gemfile = gemfile_path.to_s
       result = ''
 
       Dir.chdir(project_path) do
         pread, pwrite = IO.pipe
         env = ENV.to_h.dup
-        env['BUNDLE_GEMFILE'] = gemfile_path.to_s
-        pid = spawn(env, 'license_finder_bundler', *ignored_groups, out: pwrite)
+        env['BUNDLE_GEMFILE'] = gemfile
+        pid = spawn(env, lf_bundler_exec.to_s, *ignored_groups, out: pwrite)
 
         pwrite.close
         result = pread.read
@@ -68,8 +75,10 @@ module LicenseFinder
     end
 
     def gemfile_path
-      gemfile_relative_path = ENV.fetch('BUNDLE_GEMFILE', './Gemfile')
-      Pathname.new(gemfile_relative_path).expand_path(Dir.pwd)
+      return Pathname.new(project_path).join('Gemfile').expand_path unless ENV.key?('BUNDLE_GEMFILE')
+
+      gemfile_relative_path = ENV.fetch('BUNDLE_GEMFILE')
+      Pathname.new(gemfile_relative_path).expand_path
     end
 
     def log_package_dependencies(package)
